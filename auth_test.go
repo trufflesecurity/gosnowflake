@@ -371,51 +371,6 @@ func postAuthCheckExternalBrowserFailed(_ context.Context, _ *snowflakeRestful, 
 	}, nil
 }
 
-func postAuthOktaWithNewToken(_ context.Context, _ *snowflakeRestful, _ *http.Client, _ *url.Values, _ map[string]string, bodyCreator bodyCreatorType, _ time.Duration) (*authResponse, error) {
-	var ar authRequest
-
-	cfg := &Config{
-		Authenticator: AuthTypeOkta,
-	}
-
-	// Retry 3 times and success
-	client := &fakeHTTPClient{
-		cnt:        3,
-		success:    true,
-		statusCode: 429,
-	}
-
-	urlPtr, err := url.Parse("https://fakeaccountretrylogin.snowflakecomputing.com:443/login-request?request_guid=testguid")
-	if err != nil {
-		return &authResponse{}, err
-	}
-
-	body := func() ([]byte, error) {
-		jsonBody, _ := bodyCreator()
-		if err := json.Unmarshal(jsonBody, &ar); err != nil {
-			return nil, err
-		}
-		return jsonBody, err
-	}
-
-	_, err = newRetryHTTP(context.Background(), client, emptyRequest, urlPtr, make(map[string]string), 60*time.Second, 3, defaultTimeProvider, cfg).doPost().setBodyCreator(body).execute()
-	if err != nil {
-		return &authResponse{}, err
-	}
-
-	return &authResponse{
-		Success: true,
-		Data: authResponseMain{
-			Token:       "t",
-			MasterToken: "m",
-			MfaToken:    "mockedMfaToken",
-			SessionInfo: authResponseSessionInfo{
-				DatabaseName: "dbn",
-			},
-		},
-	}, nil
-}
-
 func getDefaultSnowflakeConn() *snowflakeConn {
 	sc := &snowflakeConn{
 		rest: &snowflakeRestful{
@@ -569,29 +524,6 @@ func TestUnitAuthenticate(t *testing.T) {
 	}
 }
 
-func TestUnitAuthenticateSaml(t *testing.T) {
-	var err error
-	sr := &snowflakeRestful{
-		Protocol:         "https",
-		Host:             "abc.com",
-		Port:             443,
-		FuncPostAuthSAML: postAuthSAMLAuthSuccess,
-		FuncPostAuthOKTA: postAuthOKTASuccess,
-		FuncGetSSO:       getSSOSuccess,
-		FuncPostAuth:     postAuthCheckSAMLResponse,
-		TokenAccessor:    getSimpleTokenAccessor(),
-	}
-	sc := getDefaultSnowflakeConn()
-	sc.cfg.Authenticator = AuthTypeOkta
-	sc.cfg.OktaURL = &url.URL{
-		Scheme: "https",
-		Host:   "abc.com",
-	}
-	sc.rest = sr
-	_, err = authenticate(context.Background(), sc, []byte{}, []byte{})
-	assertNilF(t, err, "failed to run.")
-}
-
 // Unit test for OAuth.
 func TestUnitAuthenticateOAuth(t *testing.T) {
 	var err error
@@ -708,81 +640,6 @@ func TestUnitAuthenticateWithConfigMFA(t *testing.T) {
 	}
 }
 
-func TestUnitAuthenticateWithConfigOkta(t *testing.T) {
-	var err error
-	sr := &snowflakeRestful{
-		Protocol:         "https",
-		Host:             "abc.com",
-		Port:             443,
-		FuncPostAuthSAML: postAuthSAMLAuthSuccess,
-		FuncPostAuthOKTA: postAuthOKTASuccess,
-		FuncGetSSO:       getSSOSuccess,
-		FuncPostAuth:     postAuthCheckSAMLResponse,
-		TokenAccessor:    getSimpleTokenAccessor(),
-	}
-	sc := getDefaultSnowflakeConn()
-	sc.cfg.Authenticator = AuthTypeOkta
-	sc.cfg.OktaURL = &url.URL{
-		Scheme: "https",
-		Host:   "abc.com",
-	}
-	sc.rest = sr
-	sc.ctx = context.Background()
-
-	err = authenticateWithConfig(sc)
-	assertNilE(t, err, "expected to have no error.")
-
-	sr.FuncPostAuthSAML = postAuthSAMLError
-	err = authenticateWithConfig(sc)
-	assertNotNilF(t, err, "should have failed at FuncPostAuthSAML.")
-	assertEqualE(t, err.Error(), "failed to get SAML response")
-}
-
-func TestUnitAuthenticateWithConfigExternalBrowser(t *testing.T) {
-	var err error
-	sr := &snowflakeRestful{
-		FuncPostAuthSAML: postAuthSAMLError,
-		TokenAccessor:    getSimpleTokenAccessor(),
-	}
-	sc := getDefaultSnowflakeConn()
-	sc.cfg.Authenticator = AuthTypeExternalBrowser
-	sc.cfg.ExternalBrowserTimeout = defaultExternalBrowserTimeout
-	sc.rest = sr
-	sc.ctx = context.Background()
-	err = authenticateWithConfig(sc)
-	assertNotNilF(t, err, "should have failed at FuncPostAuthSAML.")
-	assertEqualE(t, err.Error(), "failed to get SAML response")
-}
-
-func TestUnitAuthenticateExternalBrowser(t *testing.T) {
-	var err error
-	sr := &snowflakeRestful{
-		FuncPostAuth:  postAuthCheckExternalBrowser,
-		TokenAccessor: getSimpleTokenAccessor(),
-	}
-	sc := getDefaultSnowflakeConn()
-	sc.cfg.Authenticator = AuthTypeExternalBrowser
-	sc.cfg.ClientStoreTemporaryCredential = ConfigBoolTrue
-	sc.rest = sr
-	_, err = authenticate(context.Background(), sc, []byte{}, []byte{})
-	if err != nil {
-		t.Fatalf("failed to run. err: %v", err)
-	}
-
-	sr.FuncPostAuth = postAuthCheckExternalBrowserToken
-	sc.cfg.IDToken = "mockedIDToken"
-	_, err = authenticate(context.Background(), sc, []byte{}, []byte{})
-	if err != nil {
-		t.Fatalf("failed to run. err: %v", err)
-	}
-
-	sr.FuncPostAuth = postAuthCheckExternalBrowserFailed
-	_, err = authenticate(context.Background(), sc, []byte{}, []byte{})
-	if err == nil {
-		t.Fatal("should have failed")
-	}
-}
-
 // To run this test you need to set environment variables in parameters.json to a user with MFA authentication enabled
 // Set any other snowflake_test variables needed for database, schema, role for this user
 func TestUsernamePasswordMfaCaching(t *testing.T) {
@@ -838,90 +695,4 @@ func TestDisableUsernamePasswordMfaCaching(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-}
-
-// To run this test you need to set SNOWFLAKE_TEST_EXT_BROWSER_USER environment variable to an external browser user
-// Set any other snowflake_test variables needed for database, schema, role for this user
-func TestExternalBrowserCaching(t *testing.T) {
-	t.Skip("manual test for external browser token caching")
-
-	config, err := ParseDSN(dsn)
-	if err != nil {
-		t.Fatal("Failed to parse dsn")
-	}
-	// connect with external browser authentication
-	user := os.Getenv("SNOWFLAKE_TEST_EXT_BROWSER_USER")
-	config.User = user
-	config.Authenticator = AuthTypeExternalBrowser
-	if runtime.GOOS == "linux" {
-		config.ClientStoreTemporaryCredential = ConfigBoolTrue
-	}
-	connector := NewConnector(SnowflakeDriver{}, *config)
-	db := sql.OpenDB(connector)
-	for i := 0; i < 3; i++ {
-		// should only be prompted to authenticate first time around.
-		_, err := db.Query("select current_user()")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// To run this test you need to set SNOWFLAKE_TEST_EXT_BROWSER_USER environment variable to an external browser user
-// Set any other snowflake_test variables needed for database, schema, role for this user
-func TestDisableExternalBrowserCaching(t *testing.T) {
-	t.Skip("manual test for disabling external browser token caching")
-
-	config, err := ParseDSN(dsn)
-	if err != nil {
-		t.Fatal("Failed to parse dsn")
-	}
-	// connect with external browser authentication
-	user := os.Getenv("SNOWFLAKE_TEST_EXT_BROWSER_USER")
-	config.User = user
-	config.Authenticator = AuthTypeExternalBrowser
-	// disable external browser token caching
-	config.ClientStoreTemporaryCredential = ConfigBoolFalse
-	connector := NewConnector(SnowflakeDriver{}, *config)
-	db := sql.OpenDB(connector)
-	for i := 0; i < 3; i++ {
-		// should be prompted to authenticate 3 times.
-		_, err := db.Query("select current_user()")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestOktaRetryWithNewToken(t *testing.T) {
-	expectedMasterToken := "m"
-	expectedToken := "t"
-	expectedMfaToken := "mockedMfaToken"
-	expectedDatabaseName := "dbn"
-
-	sr := &snowflakeRestful{
-		Protocol:         "https",
-		Host:             "abc.com",
-		Port:             443,
-		FuncPostAuthSAML: postAuthSAMLAuthSuccess,
-		FuncPostAuthOKTA: postAuthOKTASuccess,
-		FuncGetSSO:       getSSOSuccess,
-		FuncPostAuth:     postAuthOktaWithNewToken,
-		TokenAccessor:    getSimpleTokenAccessor(),
-	}
-	sc := getDefaultSnowflakeConn()
-	sc.cfg.Authenticator = AuthTypeOkta
-	sc.cfg.OktaURL = &url.URL{
-		Scheme: "https",
-		Host:   "abc.com",
-	}
-	sc.rest = sr
-	sc.ctx = context.Background()
-
-	authResponse, err := authenticate(context.Background(), sc, []byte{0x12, 0x34}, []byte{0x56, 0x78})
-	assertNilF(t, err, "should not have failed to run authenticate()")
-	assertEqualF(t, authResponse.MasterToken, expectedMasterToken)
-	assertEqualF(t, authResponse.Token, expectedToken)
-	assertEqualF(t, authResponse.MfaToken, expectedMfaToken)
-	assertEqualF(t, authResponse.SessionInfo.DatabaseName, expectedDatabaseName)
 }

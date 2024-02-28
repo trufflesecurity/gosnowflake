@@ -77,42 +77,6 @@ func (sc *snowflakeConn) connectionTelemetry(cfg *Config) {
 	sc.telemetry.sendBatch()
 }
 
-// processFileTransfer creates a snowflakeFileTransferAgent object to process
-// any PUT/GET commands with their specified options
-func (sc *snowflakeConn) processFileTransfer(
-	ctx context.Context,
-	data *execResponse,
-	query string,
-	isInternal bool) (
-	*execResponse, error) {
-	sfa := snowflakeFileTransferAgent{
-		sc:      sc,
-		data:    &data.Data,
-		command: query,
-		options: new(SnowflakeFileTransferOptions),
-	}
-	if fs := getFileStream(ctx); fs != nil {
-		sfa.sourceStream = fs
-		if isInternal {
-			sfa.data.AutoCompress = false
-		}
-	}
-	if op := getFileTransferOptions(ctx); op != nil {
-		sfa.options = op
-	}
-	if sfa.options.MultiPartThreshold == 0 {
-		sfa.options.MultiPartThreshold = dataSizeThreshold
-	}
-	if err := sfa.execute(); err != nil {
-		return nil, err
-	}
-	data, err := sfa.result()
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
 func getFileStream(ctx context.Context) *bytes.Buffer {
 	s := ctx.Value(fileStreamFile)
 	r, ok := s.(io.Reader)
@@ -122,18 +86,6 @@ func getFileStream(ctx context.Context) *bytes.Buffer {
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(r)
 	return buf
-}
-
-func getFileTransferOptions(ctx context.Context) *SnowflakeFileTransferOptions {
-	v := ctx.Value(fileTransferOptions)
-	if v == nil {
-		return nil
-	}
-	o, ok := v.(*SnowflakeFileTransferOptions)
-	if !ok {
-		return nil
-	}
-	return o
 }
 
 func (sc *snowflakeConn) populateSessionParameters(parameters []nameValueParameter) {

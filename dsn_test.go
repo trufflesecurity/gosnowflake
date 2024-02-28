@@ -498,27 +498,6 @@ func TestParseDSN(t *testing.T) {
 			err:      nil,
 		},
 		{
-			dsn: fmt.Sprintf("u:p@ac.snowflake.local:9876?account=ac&protocol=http&authenticator=%v", url.QueryEscape("https://ac.okta.com")),
-			config: &Config{
-				Account: "ac", User: "u", Password: "p",
-				Authenticator: AuthTypeOkta,
-				OktaURL: &url.URL{
-					Scheme: "https",
-					Host:   "ac.okta.com",
-				},
-				PrivateKey: testPrivKey,
-				Protocol:   "http", Host: "ac.snowflake.local", Port: 9876,
-				OCSPFailOpen:              OCSPFailOpenTrue,
-				ValidateDefaultParameters: ConfigBoolTrue,
-				ClientTimeout:             defaultClientTimeout,
-				JWTClientTimeout:          defaultJWTClientTimeout,
-				ExternalBrowserTimeout:    defaultExternalBrowserTimeout,
-				IncludeRetryReason:        ConfigBoolTrue,
-			},
-			ocspMode: ocspModeFailOpen,
-			err:      nil,
-		},
-		{
 			dsn: fmt.Sprintf("u:p@a.snowflake.local:9876?account=a&protocol=http&authenticator=SNOWFLAKE_JWT&privateKey=%v", privKeyPKCS1),
 			config: &Config{
 				Account: "a", User: "u", Password: "p",
@@ -714,60 +693,6 @@ func TestParseDSN(t *testing.T) {
 			dsn: "u:p@a.snowflakecomputing.com:443?authenticator=http%3A%2F%2Fsc.okta.com&ocspFailOpen=true&validateDefaultParameters=true",
 			err: errFailedToParseAuthenticator(),
 		},
-		{
-			dsn: "u:p@a.snowflake.local:9876?account=a&protocol=http&authenticator=EXTERNALBROWSER&disableConsoleLogin=true",
-			config: &Config{
-				Account: "a", User: "u", Password: "p",
-				Authenticator: AuthTypeExternalBrowser,
-				Protocol:      "http", Host: "a.snowflake.local", Port: 9876,
-				OCSPFailOpen:              OCSPFailOpenTrue,
-				ValidateDefaultParameters: ConfigBoolTrue,
-				ClientTimeout:             defaultClientTimeout,
-				JWTClientTimeout:          defaultJWTClientTimeout,
-				ExternalBrowserTimeout:    defaultExternalBrowserTimeout,
-				IncludeRetryReason:        ConfigBoolTrue,
-				DisableConsoleLogin:       ConfigBoolTrue,
-			},
-			ocspMode: ocspModeFailOpen,
-			err:      nil,
-		},
-		{
-			dsn: "u:p@a.snowflake.local:9876?account=a&protocol=http&authenticator=EXTERNALBROWSER&disableConsoleLogin=false",
-			config: &Config{
-				Account: "a", User: "u", Password: "p",
-				Authenticator: AuthTypeExternalBrowser,
-				Protocol:      "http", Host: "a.snowflake.local", Port: 9876,
-				OCSPFailOpen:              OCSPFailOpenTrue,
-				ValidateDefaultParameters: ConfigBoolTrue,
-				ClientTimeout:             defaultClientTimeout,
-				JWTClientTimeout:          defaultJWTClientTimeout,
-				ExternalBrowserTimeout:    defaultExternalBrowserTimeout,
-				IncludeRetryReason:        ConfigBoolTrue,
-				DisableConsoleLogin:       ConfigBoolFalse,
-			},
-			ocspMode: ocspModeFailOpen,
-			err:      nil,
-		},
-	}
-
-	for _, at := range []AuthType{AuthTypeExternalBrowser, AuthTypeOAuth} {
-		testcases = append(testcases, tcParseDSN{
-			dsn: fmt.Sprintf("@host:777/db/schema?account=ac&protocol=http&authenticator=%v", strings.ToLower(at.String())),
-			config: &Config{
-				Account: "ac", User: "", Password: "",
-				Protocol: "http", Host: "host", Port: 777,
-				Database: "db", Schema: "schema",
-				OCSPFailOpen:              OCSPFailOpenTrue,
-				ValidateDefaultParameters: ConfigBoolTrue,
-				ClientTimeout:             defaultClientTimeout,
-				JWTClientTimeout:          defaultJWTClientTimeout,
-				ExternalBrowserTimeout:    defaultExternalBrowserTimeout,
-				IncludeRetryReason:        ConfigBoolTrue,
-				Authenticator:             at,
-			},
-			ocspMode: ocspModeFailOpen,
-			err:      nil,
-		})
 	}
 
 	for _, at := range []AuthType{AuthTypeSnowflake, AuthTypeUsernamePasswordMFA, AuthTypeJwt} {
@@ -869,10 +794,6 @@ func TestParseDSN(t *testing.T) {
 				if test.config.Authenticator != cfg.Authenticator {
 					t.Fatalf("%d: Failed to match Authenticator. expected: %v, got: %v",
 						i, test.config.Authenticator.String(), cfg.Authenticator.String())
-				}
-				if test.config.Authenticator == AuthTypeOkta && *test.config.OktaURL != *cfg.OktaURL {
-					t.Fatalf("%d: Failed to match okta URL. expected: %v, got: %v",
-						i, test.config.OktaURL, cfg.OktaURL)
 				}
 				if test.config.OCSPFailOpen != cfg.OCSPFailOpen {
 					t.Fatalf("%d: Failed to match OCSPFailOpen. expected: %v, got: %v",
@@ -1080,39 +1001,6 @@ func TestDSN(t *testing.T) {
 				Application:        "special go",
 			},
 			dsn: "u:p@a.b.snowflakecomputing.com:443?application=special+go&database=db&loginTimeout=10&ocspFailOpen=true&passcode=db&passcodeInPassword=true&region=b&requestTimeout=300&role=ro&schema=sc&validateDefaultParameters=true",
-		},
-		{
-			cfg: &Config{
-				User:                           "u",
-				Password:                       "p",
-				Account:                        "a",
-				Authenticator:                  AuthTypeExternalBrowser,
-				ClientStoreTemporaryCredential: ConfigBoolTrue,
-			},
-			dsn: "u:p@a.snowflakecomputing.com:443?authenticator=externalbrowser&clientStoreTemporaryCredential=true&ocspFailOpen=true&validateDefaultParameters=true",
-		},
-		{
-			cfg: &Config{
-				User:                           "u",
-				Password:                       "p",
-				Account:                        "a",
-				Authenticator:                  AuthTypeExternalBrowser,
-				ClientStoreTemporaryCredential: ConfigBoolFalse,
-			},
-			dsn: "u:p@a.snowflakecomputing.com:443?authenticator=externalbrowser&clientStoreTemporaryCredential=false&ocspFailOpen=true&validateDefaultParameters=true",
-		},
-		{
-			cfg: &Config{
-				User:          "u",
-				Password:      "p",
-				Account:       "a",
-				Authenticator: AuthTypeOkta,
-				OktaURL: &url.URL{
-					Scheme: "https",
-					Host:   "sc.okta.com",
-				},
-			},
-			dsn: "u:p@a.snowflakecomputing.com:443?authenticator=https%3A%2F%2Fsc.okta.com&ocspFailOpen=true&validateDefaultParameters=true",
 		},
 		{
 			cfg: &Config{
@@ -1358,26 +1246,6 @@ func TestDSN(t *testing.T) {
 				ClientConfigFile:   "c:\\Users\\user\\config.json",
 			},
 			dsn: "u:p@a.b.c.snowflakecomputing.com:443?clientConfigFile=c%3A%5CUsers%5Cuser%5Cconfig.json&ocspFailOpen=true&region=b.c&validateDefaultParameters=true",
-		},
-		{
-			cfg: &Config{
-				User:                "u",
-				Password:            "p",
-				Account:             "a.b.c",
-				Authenticator:       AuthTypeExternalBrowser,
-				DisableConsoleLogin: ConfigBoolTrue,
-			},
-			dsn: "u:p@a.b.c.snowflakecomputing.com:443?authenticator=externalbrowser&disableConsoleLogin=true&ocspFailOpen=true&region=b.c&validateDefaultParameters=true",
-		},
-		{
-			cfg: &Config{
-				User:                "u",
-				Password:            "p",
-				Account:             "a.b.c",
-				Authenticator:       AuthTypeExternalBrowser,
-				DisableConsoleLogin: ConfigBoolFalse,
-			},
-			dsn: "u:p@a.b.c.snowflakecomputing.com:443?authenticator=externalbrowser&disableConsoleLogin=false&ocspFailOpen=true&region=b.c&validateDefaultParameters=true",
 		},
 	}
 	for _, test := range testcases {

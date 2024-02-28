@@ -178,13 +178,6 @@ func DSN(cfg *Config) (dsn string, err error) {
 	if cfg.Region != "" {
 		params.Add("region", cfg.Region)
 	}
-	if cfg.Authenticator != AuthTypeSnowflake {
-		if cfg.Authenticator == AuthTypeOkta {
-			params.Add("authenticator", strings.ToLower(cfg.OktaURL.String()))
-		} else {
-			params.Add("authenticator", strings.ToLower(cfg.Authenticator.String()))
-		}
-	}
 	if cfg.Passcode != "" {
 		params.Add("passcode", cfg.Passcode)
 	}
@@ -512,14 +505,12 @@ func fillMissingConfigParameters(cfg *Config) error {
 
 func authRequiresUser(cfg *Config) bool {
 	return cfg.Authenticator != AuthTypeOAuth &&
-		cfg.Authenticator != AuthTypeTokenAccessor &&
-		cfg.Authenticator != AuthTypeExternalBrowser
+		cfg.Authenticator != AuthTypeTokenAccessor
 }
 
 func authRequiresPassword(cfg *Config) bool {
 	return cfg.Authenticator != AuthTypeOAuth &&
 		cfg.Authenticator != AuthTypeTokenAccessor &&
-		cfg.Authenticator != AuthTypeExternalBrowser &&
 		cfg.Authenticator != AuthTypeJwt
 }
 

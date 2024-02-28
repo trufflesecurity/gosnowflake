@@ -4,7 +4,6 @@ package gosnowflake
 
 import (
 	"fmt"
-	"runtime/debug"
 	"strconv"
 	"time"
 )
@@ -43,7 +42,6 @@ func (se *SnowflakeError) generateTelemetryExceptionData() *telemetryData {
 			sourceKey:        telemetrySource,
 			driverTypeKey:    "Go",
 			driverVersionKey: SnowflakeGoDriverVersion,
-			stacktraceKey:    maskSecrets(string(debug.Stack())),
 		},
 		Timestamp: time.Now().UnixNano() / int64(time.Millisecond),
 	}

@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
-	"math/rand"
 	"reflect"
 	"strconv"
 	"testing"
@@ -751,50 +750,6 @@ func TestBulkArrayBinding(t *testing.T) {
 	})
 }
 
-func TestBulkArrayMultiPartBinding(t *testing.T) {
-	rowCount := 1000000 // large enough to be partitioned into multiple files
-	rand.Seed(time.Now().UnixNano())
-	randomIter := rand.Intn(3) + 2
-	randomStrings := make([]string, rowCount)
-	str := randomString(30)
-	for i := 0; i < rowCount; i++ {
-		randomStrings[i] = str
-	}
-	tempTableName := fmt.Sprintf("test_table_%v", randomString(5))
-	ctx := context.Background()
-
-	runDBTest(t, func(dbt *DBTest) {
-		dbt.mustExec(fmt.Sprintf("CREATE TABLE %s (C VARCHAR(64) NOT NULL)", tempTableName))
-		defer dbt.mustExec("drop table " + tempTableName)
-
-		for i := 0; i < randomIter; i++ {
-			dbt.mustExecContext(ctx,
-				fmt.Sprintf("INSERT INTO %s VALUES (?)", tempTableName),
-				Array(&randomStrings))
-			rows := dbt.mustQuery("select count(*) from " + tempTableName)
-			defer rows.Close()
-			if rows.Next() {
-				var count int
-				if err := rows.Scan(&count); err != nil {
-					t.Error(err)
-				}
-			}
-		}
-
-		rows := dbt.mustQuery("select count(*) from " + tempTableName)
-		defer rows.Close()
-		if rows.Next() {
-			var count int
-			if err := rows.Scan(&count); err != nil {
-				t.Error(err)
-			}
-			if count != randomIter*rowCount {
-				t.Errorf("expected %v rows, got %v rows intead", randomIter*rowCount, count)
-			}
-		}
-	})
-}
-
 func TestBulkArrayMultiPartBindingInt(t *testing.T) {
 	runDBTest(t, func(dbt *DBTest) {
 		dbt.mustExec("create or replace table binding_test (c1 integer)")
@@ -959,89 +914,6 @@ func TestFunctionParameters(t *testing.T) {
 	})
 }
 
-func TestVariousBindingModes(t *testing.T) {
-	testcases := []struct {
-		testDesc  string
-		paramType string
-		input     any
-		isNil     bool
-	}{
-		{"textAndString", "text", "string", false},
-		{"numberAndInteger", "number", 123, false},
-		{"floatAndFloat", "float", 123.01, false},
-		{"booleanAndBoolean", "boolean", true, false},
-		{"dateAndTime", "date", time.Now().Truncate(24 * time.Hour), false},
-		{"datetimeAndTime", "datetime", time.Now(), false},
-		{"timeAndTime", "time", "12:34:56", false},
-		{"timestampAndTime", "timestamp", time.Now(), false},
-		{"timestamp_ntzAndTime", "timestamp_ntz", time.Now(), false},
-		{"timestamp_ltzAndTime", "timestamp_ltz", time.Now(), false},
-		{"timestamp_tzAndTime", "timestamp_tz", time.Now(), false},
-		{"textAndNullString", "text", sql.NullString{}, true},
-		{"numberAndNullInt64", "number", sql.NullInt64{}, true},
-		{"floatAndNullFloat64", "float", sql.NullFloat64{}, true},
-		{"booleanAndAndNullBool", "boolean", sql.NullBool{}, true},
-		{"dateAndTypedNullTime", "date", TypedNullTime{sql.NullTime{}, DateType}, true},
-		{"datetimeAndTypedNullTime", "datetime", TypedNullTime{sql.NullTime{}, TimestampNTZType}, true},
-		{"timeAndTypedNullTime", "time", TypedNullTime{sql.NullTime{}, TimeType}, true},
-		{"timestampAndTypedNullTime", "timestamp", TypedNullTime{sql.NullTime{}, TimestampNTZType}, true},
-		{"timestamp_ntzAndTypedNullTime", "timestamp_ntz", TypedNullTime{sql.NullTime{}, TimestampNTZType}, true},
-		{"timestamp_ltzAndTypedNullTime", "timestamp_ltz", TypedNullTime{sql.NullTime{}, TimestampLTZType}, true},
-		{"timestamp_tzAndTypedNullTime", "timestamp_tz", TypedNullTime{sql.NullTime{}, TimestampTZType}, true},
-		{"LOBSmallSize", fmt.Sprintf("varchar(%v)", smallSize), randomString(smallSize), false},
-		{"LOBOriginSize", fmt.Sprintf("varchar(%v)", originSize), randomString(originSize), false},
-		{"LOBMediumSize", fmt.Sprintf("varchar(%v)", mediumSize), randomString(mediumSize), false},
-		{"LOBLargeSize", fmt.Sprintf("varchar(%v)", largeSize), randomString(largeSize), false},
-		{"LOBMaxSize", fmt.Sprintf("varchar(%v)", maxLOBSize), randomString(maxLOBSize), false},
-	}
-
-	bindingModes := []struct {
-		param     string
-		query     string
-		transform func(any) any
-	}{
-		{
-			param:     "?",
-			transform: func(v any) any { return v },
-		},
-		{
-			param:     ":1",
-			transform: func(v any) any { return v },
-		},
-		{
-			param:     ":param",
-			transform: func(v any) any { return sql.Named("param", v) },
-		},
-	}
-
-	runDBTest(t, func(dbt *DBTest) {
-		for _, tc := range testcases {
-			for _, bindingMode := range bindingModes {
-				t.Run(tc.testDesc+" "+bindingMode.param, func(t *testing.T) {
-					query := fmt.Sprintf(`CREATE OR REPLACE TABLE BINDING_MODES(param1 %v)`, tc.paramType)
-					dbt.mustExec(query)
-					if _, err := dbt.exec(fmt.Sprintf("INSERT INTO BINDING_MODES VALUES (%v)", bindingMode.param), bindingMode.transform(tc.input)); err != nil {
-						t.Fatal(err)
-					}
-					if tc.isNil {
-						query = "SELECT * FROM BINDING_MODES WHERE param1 IS NULL"
-					} else {
-						query = fmt.Sprintf("SELECT * FROM BINDING_MODES WHERE param1 = %v", bindingMode.param)
-					}
-					rows, err := dbt.query(query, bindingMode.transform(tc.input))
-					if err != nil {
-						t.Fatal(err)
-					}
-					defer rows.Close()
-					if !rows.Next() {
-						t.Fatal("Expected to return a row")
-					}
-				})
-			}
-		}
-	})
-}
-
 func TestLOBRetrievalWithArrow(t *testing.T) {
 	testLOBRetrieval(t, true)
 }
@@ -1077,117 +949,6 @@ func testLOBRetrieval(t *testing.T, useArrowFormat bool) {
 				// verify the length of the result
 				assertEqualF(t, len(res), testSize)
 			})
-		}
-		dbt.exec(unsetFeatureMaxLOBSize)
-	})
-}
-
-func TestInsertLobDataWithLiteralArrow(t *testing.T) {
-	testInsertLOBData(t, true, true)
-}
-
-func TestInsertLobDataWithLiteralJSON(t *testing.T) {
-	testInsertLOBData(t, false, true)
-}
-
-func TestInsertLobDataWithBindingsArrow(t *testing.T) {
-	testInsertLOBData(t, true, false)
-}
-
-func TestInsertLobDataWithBindingsJSON(t *testing.T) {
-	testInsertLOBData(t, false, false)
-}
-
-func testInsertLOBData(t *testing.T, useArrowFormat bool, isLiteral bool) {
-	expectedNumCols := 3
-	columnMeta := []struct {
-		columnName string
-		columnType reflect.Type
-	}{
-		{"C1", reflect.TypeOf("")},
-		{"C2", reflect.TypeOf("")},
-		{"C3", reflect.TypeOf(int64(0))},
-	}
-	testCases := []struct {
-		testDesc string
-		c1Size   int
-		c2Size   int
-		c3Size   int
-	}{
-		{"testLOBInsertSmallSize", smallSize, smallSize, lobRandomRange},
-		{"testLOBInsertOriginSize", originSize, originSize, lobRandomRange},
-		{"testLOBInsertMediumSize", mediumSize, originSize, lobRandomRange},
-		{"testLOBInsertLargeSize", largeSize, originSize, lobRandomRange},
-		{"testLOBInsertMaxSize", maxLOBSize, originSize, lobRandomRange},
-	}
-
-	runDBTest(t, func(dbt *DBTest) {
-		var c1 string
-		var c2 string
-		var c3 int
-
-		dbt.exec(enableFeatureMaxLOBSize)
-		if useArrowFormat {
-			dbt.mustExec(forceARROW)
-		} else {
-			dbt.mustExec(forceJSON)
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.testDesc, func(t *testing.T) {
-				// initialize test data
-				c1Data := randomString(tc.c1Size)
-				c2Data := randomString(tc.c2Size)
-				c3Data := rand.Intn(tc.c3Size)
-
-				dbt.mustExec(fmt.Sprintf("CREATE OR REPLACE TABLE lob_test_table (c1 varchar(%v), c2 varchar(%v), c3 int)", tc.c1Size, tc.c2Size))
-				if isLiteral {
-					dbt.mustExec(fmt.Sprintf("INSERT INTO lob_test_table VALUES ('%s', '%s', %v)", c1Data, c2Data, c3Data))
-				} else {
-					dbt.mustExec("INSERT INTO lob_test_table VALUES (?, ?, ?)", c1Data, c2Data, c3Data)
-				}
-				rows, err := dbt.query("SELECT * FROM lob_test_table")
-				assertNilF(t, err)
-				defer rows.Close()
-				assertTrueF(t, rows.Next(), fmt.Sprintf("%s: no rows returned", tc.testDesc))
-
-				err = rows.Scan(&c1, &c2, &c3)
-				assertNilF(t, err)
-
-				// check the number of columns
-				columnTypes, err := rows.ColumnTypes()
-				assertNilF(t, err)
-				assertEqualF(t, len(columnTypes), expectedNumCols)
-
-				// verify the column metadata: name, type and length
-				for colIdx := 0; colIdx < expectedNumCols; colIdx++ {
-					colName := columnTypes[colIdx].Name()
-					assertEqualF(t, colName, columnMeta[colIdx].columnName)
-
-					colType := columnTypes[colIdx].ScanType()
-					assertEqualF(t, colType, columnMeta[colIdx].columnType)
-
-					colLength, ok := columnTypes[colIdx].Length()
-
-					switch colIdx {
-					case 0:
-						assertTrueF(t, ok)
-						assertEqualF(t, colLength, int64(tc.c1Size))
-						// verify the data
-						assertEqualF(t, c1, c1Data)
-					case 1:
-						assertTrueF(t, ok)
-						assertEqualF(t, colLength, int64(tc.c2Size))
-						// verify the data
-						assertEqualF(t, c2, c2Data)
-					case 2:
-						assertFalseF(t, ok)
-						// verify the data
-						assertEqualF(t, c3, c3Data)
-					}
-				}
-			})
-			dbt.mustExec("DROP TABLE IF EXISTS lob_test_table")
 		}
 		dbt.exec(unsetFeatureMaxLOBSize)
 	})

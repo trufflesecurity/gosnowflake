@@ -105,9 +105,6 @@ func (util *snowflakeFileUtil) getDigestAndSizeForFile(fileName string) (string,
 // file metadata for PUT/GET
 type fileMetadata struct {
 	name               string
-	sfa                *snowflakeFileTransferAgent
-	stageLocationType  cloudType
-	resStatus          resultStatus
 	stageInfo          *execResponseStageInfo
 	encryptionMaterial *snowflakeFileEncryption
 
@@ -120,7 +117,6 @@ type fileMetadata struct {
 	dstFileName        string
 	dstCompressionType *compressionType
 
-	client             cloudClient // *s3.Client (S3), *azblob.ContainerURL (Azure), string (GCS)
 	requireCompress    bool
 	parallel           int64
 	sha256Digest       string
@@ -131,7 +127,6 @@ type fileMetadata struct {
 	noSleepingTime     bool
 	lastMaxConcurrency int
 	localLocation      string
-	options            *SnowflakeFileTransferOptions
 
 	/* streaming PUT */
 	srcStream     *bytes.Buffer
@@ -142,13 +137,6 @@ type fileMetadata struct {
 	gcsFileHeaderDigest         string
 	gcsFileHeaderContentLength  int64
 	gcsFileHeaderEncryptionMeta *encryptMetadata
-
-	/* mock */
-	mockUploader    s3UploadAPI
-	mockDownloader  s3DownloadAPI
-	mockHeader      s3HeaderAPI
-	mockGcsClient   gcsAPI
-	mockAzureClient azureAPI
 }
 
 type fileTransferResultType struct {
@@ -159,7 +147,6 @@ type fileTransferResultType struct {
 	dstFileSize        int64
 	srcCompressionType *compressionType
 	dstCompressionType *compressionType
-	resStatus          resultStatus
 	errorDetails       error
 }
 

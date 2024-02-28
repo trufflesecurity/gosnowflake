@@ -78,11 +78,6 @@ func WithFileStream(ctx context.Context, reader io.Reader) context.Context {
 	return context.WithValue(ctx, fileStreamFile, reader)
 }
 
-// WithFileTransferOptions returns a context that contains the address of file transfer options
-func WithFileTransferOptions(ctx context.Context, options *SnowflakeFileTransferOptions) context.Context {
-	return context.WithValue(ctx, fileTransferOptions, options)
-}
-
 // WithDescribeOnly returns a context that enables a describe only query
 func WithDescribeOnly(ctx context.Context) context.Context {
 	return context.WithValue(ctx, describeOnly, true)

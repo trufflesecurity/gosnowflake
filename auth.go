@@ -40,10 +40,6 @@ const (
 	AuthTypeSnowflake AuthType = iota
 	// AuthTypeOAuth is the OAuth authentication
 	AuthTypeOAuth
-	// AuthTypeExternalBrowser is to use a browser to access an Fed and perform SSO authentication
-	AuthTypeExternalBrowser
-	// AuthTypeOkta is to use a native okta URL to perform SSO authentication on Okta
-	AuthTypeOkta
 	// AuthTypeJwt is to use Jwt to perform authentication
 	AuthTypeJwt
 	// AuthTypeTokenAccessor is to use the provided token accessor and bypass authentication
@@ -54,7 +50,6 @@ const (
 
 func determineAuthenticatorType(cfg *Config, value string) error {
 	upperCaseValue := strings.ToUpper(value)
-	lowerCaseValue := strings.ToLower(value)
 	if strings.Trim(value, " ") == "" || upperCaseValue == AuthTypeSnowflake.String() {
 		cfg.Authenticator = AuthTypeSnowflake
 		return nil
@@ -64,44 +59,12 @@ func determineAuthenticatorType(cfg *Config, value string) error {
 	} else if upperCaseValue == AuthTypeJwt.String() {
 		cfg.Authenticator = AuthTypeJwt
 		return nil
-	} else if upperCaseValue == AuthTypeExternalBrowser.String() {
-		cfg.Authenticator = AuthTypeExternalBrowser
-		return nil
 	} else if upperCaseValue == AuthTypeUsernamePasswordMFA.String() {
 		cfg.Authenticator = AuthTypeUsernamePasswordMFA
 		return nil
 	} else if upperCaseValue == AuthTypeTokenAccessor.String() {
 		cfg.Authenticator = AuthTypeTokenAccessor
 		return nil
-	} else {
-		// possibly Okta case
-		oktaURLString, err := url.QueryUnescape(lowerCaseValue)
-		if err != nil {
-			return &SnowflakeError{
-				Number:      ErrCodeFailedToParseAuthenticator,
-				Message:     errMsgFailedToParseAuthenticator,
-				MessageArgs: []interface{}{lowerCaseValue},
-			}
-		}
-
-		oktaURL, err := url.Parse(oktaURLString)
-		if err != nil {
-			return &SnowflakeError{
-				Number:      ErrCodeFailedToParseAuthenticator,
-				Message:     errMsgFailedToParseAuthenticator,
-				MessageArgs: []interface{}{oktaURLString},
-			}
-		}
-
-		if oktaURL.Scheme != "https" || !strings.HasSuffix(oktaURL.Host, "okta.com") {
-			return &SnowflakeError{
-				Number:      ErrCodeFailedToParseAuthenticator,
-				Message:     errMsgFailedToParseAuthenticator,
-				MessageArgs: []interface{}{oktaURLString},
-			}
-		}
-		cfg.OktaURL = oktaURL
-		cfg.Authenticator = AuthTypeOkta
 	}
 	return nil
 }
@@ -112,10 +75,6 @@ func (authType AuthType) String() string {
 		return "SNOWFLAKE"
 	case AuthTypeOAuth:
 		return "OAUTH"
-	case AuthTypeExternalBrowser:
-		return "EXTERNALBROWSER"
-	case AuthTypeOkta:
-		return "OKTA"
 	case AuthTypeJwt:
 		return "SNOWFLAKE_JWT"
 	case AuthTypeTokenAccessor:
@@ -402,34 +361,10 @@ func createRequestBody(sc *snowflakeConn, sessionParameters map[string]interface
 	}
 
 	switch sc.cfg.Authenticator {
-	case AuthTypeExternalBrowser:
-		if sc.cfg.IDToken != "" {
-			requestMain.Authenticator = idTokenAuthenticator
-			requestMain.Token = sc.cfg.IDToken
-			requestMain.LoginName = sc.cfg.User
-		} else {
-			requestMain.ProofKey = string(proofKey)
-			requestMain.Token = string(samlResponse)
-			requestMain.LoginName = sc.cfg.User
-			requestMain.Authenticator = AuthTypeExternalBrowser.String()
-		}
 	case AuthTypeOAuth:
 		requestMain.LoginName = sc.cfg.User
 		requestMain.Authenticator = AuthTypeOAuth.String()
 		requestMain.Token = sc.cfg.Token
-	case AuthTypeOkta:
-		samlResponse, err := authenticateBySAML(
-			sc.ctx,
-			sc.rest,
-			sc.cfg.OktaURL,
-			sc.cfg.Application,
-			sc.cfg.Account,
-			sc.cfg.User,
-			sc.cfg.Password)
-		if err != nil {
-			return nil, err
-		}
-		requestMain.RawSAMLResponse = string(samlResponse)
 	case AuthTypeJwt:
 		requestMain.Authenticator = AuthTypeJwt.String()
 
@@ -505,19 +440,6 @@ func authenticateWithConfig(sc *snowflakeConn) error {
 	var err error
 	//var consentCacheIdToken = true
 
-	if sc.cfg.Authenticator == AuthTypeExternalBrowser {
-		if (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && sc.cfg.ClientStoreTemporaryCredential == configBoolNotSet {
-			sc.cfg.ClientStoreTemporaryCredential = ConfigBoolTrue
-		}
-		if sc.cfg.ClientStoreTemporaryCredential == ConfigBoolTrue {
-			fillCachedIDToken(sc)
-		}
-		// Disable console login by default
-		if sc.cfg.DisableConsoleLogin == configBoolNotSet {
-			sc.cfg.DisableConsoleLogin = ConfigBoolTrue
-		}
-	}
-
 	if sc.cfg.Authenticator == AuthTypeUsernamePasswordMFA {
 		if (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && sc.cfg.ClientRequestMfaToken == configBoolNotSet {
 			sc.cfg.ClientRequestMfaToken = ConfigBoolTrue
@@ -528,25 +450,7 @@ func authenticateWithConfig(sc *snowflakeConn) error {
 	}
 
 	logger.Infof("Authenticating via %v", sc.cfg.Authenticator.String())
-	switch sc.cfg.Authenticator {
-	case AuthTypeExternalBrowser:
-		if sc.cfg.IDToken == "" {
-			samlResponse, proofKey, err = authenticateByExternalBrowser(
-				sc.ctx,
-				sc.rest,
-				sc.cfg.Authenticator.String(),
-				sc.cfg.Application,
-				sc.cfg.Account,
-				sc.cfg.User,
-				sc.cfg.Password,
-				sc.cfg.ExternalBrowserTimeout,
-				sc.cfg.DisableConsoleLogin)
-			if err != nil {
-				sc.cleanup()
-				return err
-			}
-		}
-	}
+
 	authData, err = authenticate(
 		sc.ctx,
 		sc,

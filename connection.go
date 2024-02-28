@@ -128,9 +128,7 @@ func (sc *snowflakeConn) exec(
 
 	// populate headers
 	headers := getHeaders()
-	if isFileTransfer(query) {
-		headers[httpHeaderAccept] = headerContentTypeApplicationJSON
-	}
+
 	paramsMutex.Lock()
 	if serviceName, ok := sc.cfg.Params[serviceName]; ok {
 		headers[httpHeaderServiceName] = *serviceName
@@ -166,14 +164,6 @@ func (sc *snowflakeConn) exec(
 			logger.Errorf("error while decoding query context: ", err)
 		} else {
 			sc.queryContextCache.add(sc, queryContext.Entries...)
-		}
-	}
-
-	// handle PUT/GET commands
-	if isFileTransfer(query) {
-		data, err = sc.processFileTransfer(ctx, data, query, isInternal)
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -819,9 +809,6 @@ func buildSnowflakeConn(ctx context.Context, config Config) (*snowflakeConn, err
 		FuncPostAuth:        postAuth,
 		FuncCloseSession:    closeSession,
 		FuncCancelQuery:     cancelQuery,
-		FuncPostAuthSAML:    postAuthSAML,
-		FuncPostAuthOKTA:    postAuthOKTA,
-		FuncGetSSO:          getSSO,
 	}
 
 	if sc.cfg.DisableTelemetry {
